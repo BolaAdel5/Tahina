@@ -1250,37 +1250,36 @@ async function viewInv(id) {
 }
 
 function printInv() {
-  const el = document.getElementById("printable");
-  if (!el) return;
-
-  const w = window.open("", "_blank");
-
-  w.document.open();
-  w.document.write(`
-    <!DOCTYPE html>
-    <html dir="rtl">
-    <head>
-      <meta charset="UTF-8">
-      <title>Print</title>
-      <style>
-        body{
-          direction:rtl;
-          font-family:Arial,sans-serif;
-          margin:20px;
-        }
-      </style>
-    </head>
-    <body>${el.outerHTML}</body>
-    </html>
-  `);
+  const el = document.getElementById('printable');
+  if (!el) { alert('لا توجد فاتورة للطباعة'); return; }
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>طباعة الفاتورة</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'IBM Plex Sans Arabic',Arial,sans-serif;direction:rtl;background:#fff;color:#111}
+:root{--navy:#0f172a;--blue:#1d4ed8;--green:#16a34a;--red:#dc2626;--gold:#f59e0b;--gray:#6b7280;--gray-l:#f8fafc;--border:#e5e7eb;--r:14px;--r2:10px}
+.badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
+.b-ok{background:#f0fdf4;color:#16a34a}
+.b-wa{background:#fffbeb;color:#92400e}
+.b-no{background:#fef2f2;color:#dc2626}
+@media print{
+  @page{margin:1cm;size:A4}
+  body{margin:0}
+}
+</style>
+</head>
+<body>
+${el.outerHTML}
+</body>
+</html>`);
   w.document.close();
-
-  // استنى 3 ثواني قبل الطباعة
-  setTimeout(() => {
-    w.focus();
-    w.print();
-    w.close();
-  }, 5000);
+  w.focus();
+  setTimeout(() => { w.print(); }, 1500);
 }
 
 // ============================================================
