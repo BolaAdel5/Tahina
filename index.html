@@ -1250,60 +1250,37 @@ async function viewInv(id) {
 }
 
 function printInv() {
-  const printable = document.getElementById("printable");
+  const el = document.getElementById("printable");
+  if (!el) return;
 
-  if (!printable) {
-    alert("العنصر printable غير موجود");
-    return;
-  }
+  const w = window.open("", "_blank");
 
-  const printWindow = window.open("", "_blank");
-
-  printWindow.document.write(`
+  w.document.open();
+  w.document.write(`
     <!DOCTYPE html>
     <html dir="rtl">
     <head>
       <meta charset="UTF-8">
-      <title>طباعة الفاتورة</title>
-
+      <title>Print</title>
       <style>
         body{
           direction:rtl;
           font-family:Arial,sans-serif;
-          padding:20px;
-          margin:0;
-          background:#fff;
-        }
-
-        @page{
-          size:A4;
-          margin:10mm;
-        }
-
-        @media print{
-          body{
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
+          margin:20px;
         }
       </style>
     </head>
-
-    <body>
-      ${printable.innerHTML}
-    </body>
+    <body>${el.outerHTML}</body>
     </html>
   `);
+  w.document.close();
 
-  printWindow.document.close();
-
-  printWindow.onload = function () {
-    printWindow.focus();
-    printWindow.print();
-    setTimeout(() => {
-      printWindow.close();
-    }, 500);
-  };
+  // استنى 3 ثواني قبل الطباعة
+  setTimeout(() => {
+    w.focus();
+    w.print();
+    w.close();
+  }, 5000);
 }
 
 // ============================================================
