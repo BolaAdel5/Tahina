@@ -692,22 +692,27 @@ async function renderDash() {
   document.getElementById('dOil').textContent = fmtN(oil?.stock||0);
 
   // Recent invoices
-  const { data: recent } = await SB.from('invoices').select('*,customers(name,shop)').order('created_at',{ascending:false}).limit(5);
+  const { data: recent } = await SB.from('invoices').select('*').order('created_at',{ascending:false}).limit(5);
   const dR = document.getElementById('dRecent');
+  // Build customer map for recent invoices
+  const rCusts = await SB.from('customers').select('id,name,shop');
+  const rCMap = {}; (rCusts.data||[]).forEach(c=>rCMap[c.id]=c);
+
   if (!recent?.length) {
     dR.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray);font-size:13px">لا توجد فواتير بعد</div>';
   } else {
-    dR.innerHTML = recent.map(inv => `
-      <div onclick="viewInv('${inv.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 4px;border-bottom:1px solid #f3f4f6;cursor:pointer;border-radius:8px;transition:.15s" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
+    dR.innerHTML = recent.map(inv => {
+      const rc = rCMap[inv.customer_id]||{};
+      return `<div onclick="viewInv('${inv.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 4px;border-bottom:1px solid #f3f4f6;cursor:pointer;border-radius:8px;transition:.15s" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
         <div style="display:flex;align-items:center;gap:9px">
-          <div style="width:32px;height:32px;background:var(--blue-l);border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--blue);font-weight:700;font-size:13px">${(inv.customers?.name||'?')[0]}</div>
-          <div><p style="font-size:13px;font-weight:600">${inv.customers?.name||'—'}</p><p style="font-size:11px;color:var(--gray)">${inv.num||''} · ${fmtD(inv.date)}</p></div>
+          <div style="width:32px;height:32px;background:var(--blue-l);border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--blue);font-weight:700;font-size:13px">${(rc.name||'?')[0]}</div>
+          <div><p style="font-size:13px;font-weight:600">${rc.name||'—'}</p><p style="font-size:11px;color:var(--gray)">${inv.num||''} · ${fmtD(inv.date)}</p></div>
         </div>
         <div style="text-align:left">
           <p style="font-size:13px;font-weight:700">${fmt(inv.total)}</p>
           <span class="badge ${(inv.remaining||0)>0?'b-no':'b-ok'}" style="font-size:10px">${(inv.remaining||0)>0?'معلق':'مسدد'}</span>
         </div>
-      </div>`).join('');
+      </div>`;}).join('');
   }
 
   // Chart
@@ -808,7 +813,7 @@ async function renderInvPage() {
   pload('invTB');
   const [pr, iv] = await Promise.all([
     SB.from('products').select('*'),
-    SB.from('inventory').select('*,products(name,unit)').order('date',{ascending:false})
+    SB.from('inventory').select('*').order('date',{ascending:false})
   ]);
   const prods = pr.data||[], entries = iv.data||[];
 
@@ -825,18 +830,23 @@ async function renderInvPage() {
     </div>`;
   }).join('');
 
+  // Build product map
+  const pMap = {};
+  prods.forEach(p => pMap[p.id] = p);
+
   // Table
   const tb = document.getElementById('invTB');
   if (!entries.length) { tb.innerHTML='<tr><td colspan="6" class="tempty"><span>📦</span>لا توجد سجلات وارد</td></tr>'; return; }
-  tb.innerHTML = entries.map(e => `
-    <tr>
+  tb.innerHTML = entries.map(e => {
+    const prod = pMap[e.product_id] || {};
+    return `<tr>
       <td>${fmtD(e.date)}</td>
-      <td><strong>${e.products?.name||'—'}</strong></td>
+      <td><strong>${prod.name||'—'}</strong></td>
       <td><span style="color:var(--green);font-weight:700">+${fmtN(e.qty)} كيلو</span></td>
       <td>${(e.price||0)>0?fmt(e.price):'—'}</td>
       <td style="color:var(--gray)">${e.notes||'—'}</td>
       <td><button class="bic d" onclick="confirm2('حذف سجل الوارد؟',()=>delInvEntry('${e.id}','${e.product_id}',${e.qty}))">🗑️</button></td>
-    </tr>`).join('');
+    </tr>`;}).join('');
 }
 
 async function openIM() {
@@ -1127,7 +1137,7 @@ function resetNI(){niItems=[];['niCust','niProd','niQty','niPaid','niNotes'].for
 let allInvs=[], invFilter='all', invSearch='';
 async function renderInvList() {
   pload('invTB2');
-  const { data, error } = await SB.from('invoices').select('*,customers(name,shop)').order('created_at',{ascending:false});
+  const { data, error } = await SB.from('invoices').select('*').order('created_at',{ascending:false});
   if (error) { document.getElementById('invTB2').innerHTML=`<tr><td colspan="8" style="color:red;padding:20px">خطأ: ${error.message}</td></tr>`; return; }
   allInvs = data||[];
   renderInvTable();
@@ -1144,9 +1154,12 @@ function renderInvTable() {
   document.getElementById('invSub').textContent = `${list.length} فاتورة`;
   const tb = document.getElementById('invTB2');
   if (!list.length) { tb.innerHTML='<tr><td colspan="8" class="tempty"><span>🧾</span>لا توجد فواتير</td></tr>'; return; }
-  tb.innerHTML = list.map(inv=>`
-    <tr onclick="viewInv('${inv.id}')" style="cursor:pointer">
-      <td><strong>${inv.customers?.name||'—'}</strong><br><small style="color:var(--gray)">${inv.customers?.shop||''}</small></td>
+  const iCusts = await SB.from('customers').select('id,name,shop');
+  const iCMap = {}; (iCusts.data||[]).forEach(c=>iCMap[c.id]=c);
+  tb.innerHTML = list.map(inv=>{
+    const ic=iCMap[inv.customer_id]||{};
+    return `<tr onclick="viewInv('${inv.id}')" style="cursor:pointer">
+      <td><strong>${ic.name||'—'}</strong><br><small style="color:var(--gray)">${ic.shop||''}</small></td>
       <td style="color:var(--blue);font-weight:600">${inv.num||''}</td>
       <td>${fmtD(inv.date)}</td>
       <td style="font-weight:700">${fmt(inv.total)}</td>
@@ -1154,7 +1167,7 @@ function renderInvTable() {
       <td style="color:${(inv.remaining||0)>0?'var(--red)':'var(--green)'}"><strong>${fmt(inv.remaining)}</strong></td>
       <td><span class="badge ${(inv.remaining||0)<=0?'b-ok':'b-no'}">${(inv.remaining||0)<=0?'مسدد':'معلق'}</span></td>
       <td onclick="event.stopPropagation()"><button class="bic d" onclick="confirm2('حذف الفاتورة؟',()=>delInv('${inv.id}','${inv.customer_id}',${inv.remaining||0}))">🗑️</button></td>
-    </tr>`).join('');
+    </tr>`;}).join('');
 }
 function setIF(f,el){invFilter=f;document.querySelectorAll('.ft button').forEach(b=>b.classList.remove('on'));el?.classList.add('on');renderInvTable();}
 function filterInv(q){invSearch=q;renderInvTable();}
@@ -1173,9 +1186,10 @@ async function delInv(id,custId,rem){
 async function viewInv(id) {
   go('invview');
   document.getElementById('invViewC').innerHTML='<div class="pload"><div class="sp2"></div><span>جارٍ التحميل...</span></div>';
-  const { data:inv } = await SB.from('invoices').select('*,customers(*)').eq('id',id).single();
+  const { data:inv } = await SB.from('invoices').select('*').eq('id',id).single();
   if (!inv) return;
-  const c = inv.customers||{};
+  const custRes = await SB.from('customers').select('*').eq('id',inv.customer_id).single();
+  const c = custRes.data||{};
   const items = Array.isArray(inv.items)?inv.items:[];
   document.getElementById('invViewC').innerHTML = `
     <div id="printable" style="background:#fff;border-radius:var(--r);border:1px solid var(--border);overflow:hidden">
@@ -1254,21 +1268,26 @@ function printInv() {
 // ============================================================
 async function renderPays() {
   pload('payTB');
-  const { data, error } = await SB.from('payments').select('*,customers(name,shop)').order('date',{ascending:false});
-  if (error) { document.getElementById('payTB').innerHTML=`<tr><td colspan="6" style="color:red;padding:20px">خطأ: ${error.message}</td></tr>`; return; }
-  const list = data||[];
+  const [paysRes, custsRes] = await Promise.all([
+    SB.from('payments').select('*').order('date',{ascending:false}),
+    SB.from('customers').select('id,name,shop')
+  ]);
+  if (paysRes.error) { document.getElementById('payTB').innerHTML=`<tr><td colspan="6" style="color:red;padding:20px">خطأ: ${paysRes.error.message}</td></tr>`; return; }
+  const list = paysRes.data||[];
+  const cMap={};(custsRes.data||[]).forEach(c=>cMap[c.id]=c);
   document.getElementById('paySub').textContent = `${list.length} دفعة · إجمالي: ${fmt(list.reduce((s,p)=>s+(p.amount||0),0))}`;
   const tb = document.getElementById('payTB');
   if (!list.length) { tb.innerHTML='<tr><td colspan="6" class="tempty"><span>💰</span>لا توجد دفعات</td></tr>'; return; }
-  tb.innerHTML = list.map(p=>`
-    <tr>
-      <td><strong>${p.customers?.name||'—'}</strong></td>
-      <td style="color:var(--gray)">${p.customers?.shop||'—'}</td>
+  tb.innerHTML = list.map(p=>{
+    const c=cMap[p.customer_id]||{};
+    return `<tr>
+      <td><strong>${c.name||'—'}</strong></td>
+      <td style="color:var(--gray)">${c.shop||'—'}</td>
       <td style="font-weight:700;color:var(--green);font-size:15px">+${fmt(p.amount)}</td>
       <td>${fmtD(p.date)}</td>
       <td style="color:var(--gray)">${p.notes||'—'}</td>
       <td><button class="bic d" onclick="confirm2('حذف هذه الدفعة؟',()=>delPay('${p.id}','${p.customer_id}',${p.amount||0}))">🗑️</button></td>
-    </tr>`).join('');
+    </tr>`;}).join('');
 }
 
 async function openPM() {
