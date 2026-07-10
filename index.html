@@ -1137,9 +1137,16 @@ function resetNI(){niItems=[];['niCust','niProd','niQty','niPaid','niNotes'].for
 let allInvs=[], invFilter='all', invSearch='';
 async function renderInvList() {
   pload('invTB2');
-  const { data, error } = await SB.from('invoices').select('*').order('created_at',{ascending:false});
-  if (error) { document.getElementById('invTB2').innerHTML=`<tr><td colspan="8" style="color:red;padding:20px">خطأ: ${error.message}</td></tr>`; return; }
-  allInvs = data||[];
+  // نفس طريقة كشف الحساب - كل جدول منفصل
+  const [invsRes, custsRes] = await Promise.all([
+    SB.from('invoices').select('*').order('created_at',{ascending:false}),
+    SB.from('customers').select('id,name,shop')
+  ]);
+  if (invsRes.error) { document.getElementById('invTB2').innerHTML=`<tr><td colspan="8" style="color:red;padding:20px">خطأ: ${invsRes.error.message}</td></tr>`; return; }
+  allInvs = invsRes.data||[];
+  // ربط العملاء بالفواتير
+  const cMap = {}; (custsRes.data||[]).forEach(c=>cMap[c.id]=c);
+  allInvs = allInvs.map(inv=>({...inv, _cust: cMap[inv.customer_id]||{}}));
   renderInvTable();
 }
 
@@ -1154,10 +1161,8 @@ function renderInvTable() {
   document.getElementById('invSub').textContent = `${list.length} فاتورة`;
   const tb = document.getElementById('invTB2');
   if (!list.length) { tb.innerHTML='<tr><td colspan="8" class="tempty"><span>🧾</span>لا توجد فواتير</td></tr>'; return; }
-  const iCusts = await SB.from('customers').select('id,name,shop');
-  const iCMap = {}; (iCusts.data||[]).forEach(c=>iCMap[c.id]=c);
   tb.innerHTML = list.map(inv=>{
-    const ic=iCMap[inv.customer_id]||{};
+    const ic=inv._cust||{};
     return `<tr onclick="viewInv('${inv.id}')" style="cursor:pointer">
       <td><strong>${ic.name||'—'}</strong><br><small style="color:var(--gray)">${ic.shop||''}</small></td>
       <td style="color:var(--blue);font-weight:600">${inv.num||''}</td>
