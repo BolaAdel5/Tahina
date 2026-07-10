@@ -1250,22 +1250,60 @@ async function viewInv(id) {
 }
 
 function printInv() {
-  const el = document.getElementById('printable');
-  if (!el) return;
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-      *{margin:0;padding:0;box-sizing:border-box}
-      body{font-family:'IBM Plex Sans Arabic',sans-serif;direction:rtl}
-      :root{--navy:#0f172a;--blue:#1d4ed8;--green:#16a34a;--red:#dc2626;--gold:#f59e0b;--gray:#6b7280;--gray-l:#f8fafc;--border:#e5e7eb;--r:14px;--r2:10px}
-      .badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
-      .b-ok{background:#f0fdf4;color:#16a34a}.b-wa{background:#fffbeb;color:#92400e}.b-no{background:#fef2f2;color:#dc2626}
-      @media print{@page{margin:1cm;size:A4}}
-    </style>
-  </head><body>${el.outerHTML}</body></html>`);
-  w.document.close(); w.focus();
-  setTimeout(()=>{w.print();w.close();},700);
+  const printable = document.getElementById("printable");
+
+  if (!printable) {
+    alert("العنصر printable غير موجود");
+    return;
+  }
+
+  const printWindow = window.open("", "_blank");
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>طباعة الفاتورة</title>
+
+      <style>
+        body{
+          direction:rtl;
+          font-family:Arial,sans-serif;
+          padding:20px;
+          margin:0;
+          background:#fff;
+        }
+
+        @page{
+          size:A4;
+          margin:10mm;
+        }
+
+        @media print{
+          body{
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        }
+      </style>
+    </head>
+
+    <body>
+      ${printable.innerHTML}
+    </body>
+    </html>
+  `);
+
+  printWindow.document.close();
+
+  printWindow.onload = function () {
+    printWindow.focus();
+    printWindow.print();
+    setTimeout(() => {
+      printWindow.close();
+    }, 500);
+  };
 }
 
 // ============================================================
