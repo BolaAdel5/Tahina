@@ -665,77 +665,99 @@ function startApp(user) {
 let revChart = null;
 async function renderDash() {
   const td = today();
-  const [pr, cu, iv, py] = await Promise.all([
-    SB.from('products').select('name,stock'),
-    SB.from('customers').select('balance'),
-    SB.from('invoices').select('total,paid,remaining,date'),
-    SB.from('payments').select('amount,date')
+
+  // جيب كل البيانات مرة واحدة - زي كشف الحساب
+  const [prRes, cuRes, ivRes, pyRes, recRes] = await Promise.all([
+    SB.from('products').select('id,name,stock'),
+    SB.from('customers').select('id,name,shop,balance'),
+    SB.from('invoices').select('id,customer_id,num,total,paid,remaining,date,created_at').order('created_at',{ascending:false}),
+    SB.from('payments').select('id,customer_id,amount,date'),
+    SB.from('invoices').select('*').order('created_at',{ascending:false}).limit(5)
   ]);
 
-  const prods = pr.data || [], custs = cu.data || [], invs = iv.data || [], pays = py.data || [];
+  const prods  = prRes.data  || [];
+  const custs  = cuRes.data  || [];
+  const invs   = ivRes.data  || [];
+  const pays   = pyRes.data  || [];
+  const recent = recRes.data || [];
+
+  // خريطة العملاء
+  const cMap = {};
+  custs.forEach(c => cMap[c.id] = c);
+
+  // إحصائيات اليوم
   const todayInvs = invs.filter(i => i.date === td);
   const todayPays = pays.filter(p => p.date === td);
 
   const salesToday = todayInvs.reduce((s,i) => s+(i.total||0), 0);
-  const collToday = todayInvs.reduce((s,i) => s+(i.paid||0), 0) + todayPays.reduce((s,p) => s+(p.amount||0), 0);
-  const totalDebt = custs.reduce((s,c) => s+Math.max(0,c.balance||0), 0);
+  const collToday  = todayInvs.reduce((s,i) => s+(i.paid||0), 0) + todayPays.reduce((s,p) => s+(p.amount||0), 0);
+  const totalDebt  = custs.reduce((s,c) => s+Math.max(0,c.balance||0), 0);
 
+  // المخزون
   const tah = prods.find(p => p.name?.includes('طحينة'));
   const oil = prods.find(p => p.name?.includes('زيت'));
 
-  document.getElementById('dSales').textContent = fmt(salesToday);
-  document.getElementById('dColl').textContent = fmt(collToday);
-  document.getElementById('dDebt').textContent = fmt(totalDebt);
-  document.getElementById('dStock').textContent = fmtN((tah?.stock||0)+(oil?.stock||0)) + ' كيلو';
+  document.getElementById('dSales').textContent  = fmt(salesToday);
+  document.getElementById('dColl').textContent   = fmt(collToday);
+  document.getElementById('dDebt').textContent   = fmt(totalDebt);
+  document.getElementById('dStock').textContent  = fmtN((tah?.stock||0)+(oil?.stock||0)) + ' كيلو';
   document.getElementById('dStockD').textContent = `طحينة: ${fmtN(tah?.stock||0)} | زيت: ${fmtN(oil?.stock||0)}`;
-  document.getElementById('dTah').textContent = fmtN(tah?.stock||0);
-  document.getElementById('dOil').textContent = fmtN(oil?.stock||0);
+  document.getElementById('dTah').textContent    = fmtN(tah?.stock||0);
+  document.getElementById('dOil').textContent    = fmtN(oil?.stock||0);
 
-  // Recent invoices
-  const { data: recent } = await SB.from('invoices').select('*').order('created_at',{ascending:false}).limit(5);
+  // آخر الفواتير
   const dR = document.getElementById('dRecent');
-  // Build customer map for recent invoices
-  const rCusts = await SB.from('customers').select('id,name,shop');
-  const rCMap = {}; (rCusts.data||[]).forEach(c=>rCMap[c.id]=c);
-
-  if (!recent?.length) {
+  if (!recent.length) {
     dR.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray);font-size:13px">لا توجد فواتير بعد</div>';
   } else {
     dR.innerHTML = recent.map(inv => {
-      const rc = rCMap[inv.customer_id]||{};
+      const c = cMap[inv.customer_id] || {};
       return `<div onclick="viewInv('${inv.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 4px;border-bottom:1px solid #f3f4f6;cursor:pointer;border-radius:8px;transition:.15s" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
         <div style="display:flex;align-items:center;gap:9px">
-          <div style="width:32px;height:32px;background:var(--blue-l);border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--blue);font-weight:700;font-size:13px">${(rc.name||'?')[0]}</div>
-          <div><p style="font-size:13px;font-weight:600">${rc.name||'—'}</p><p style="font-size:11px;color:var(--gray)">${inv.num||''} · ${fmtD(inv.date)}</p></div>
+          <div style="width:32px;height:32px;background:var(--blue-l);border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--blue);font-weight:700;font-size:13px">${(c.name||'؟')[0]}</div>
+          <div>
+            <p style="font-size:13px;font-weight:600">${c.name||'—'}</p>
+            <p style="font-size:11px;color:var(--gray)">${inv.num||''} · ${fmtD(inv.date)}</p>
+          </div>
         </div>
         <div style="text-align:left">
           <p style="font-size:13px;font-weight:700">${fmt(inv.total)}</p>
           <span class="badge ${(inv.remaining||0)>0?'b-no':'b-ok'}" style="font-size:10px">${(inv.remaining||0)>0?'معلق':'مسدد'}</span>
         </div>
-      </div>`;}).join('');
+      </div>`;
+    }).join('');
   }
 
-  // Chart
+  // الرسم البياني - آخر 7 أيام
   const labels=[], rev=[], col=[];
   for (let i=6; i>=0; i--) {
     const ds = daysAgo(i);
     labels.push(fmtD(ds));
-    const di = invs.filter(x => x.date===ds);
-    const dp = pays.filter(x => x.date===ds);
+    const di = invs.filter(x => x.date === ds);
+    const dp = pays.filter(x => x.date === ds);
     rev.push(di.reduce((s,x) => s+(x.total||0), 0));
     col.push(di.reduce((s,x) => s+(x.paid||0), 0) + dp.reduce((s,x) => s+(x.amount||0), 0));
   }
+
   const ctx = document.getElementById('revChart').getContext('2d');
   if (revChart) revChart.destroy();
   revChart = new Chart(ctx, {
-    type:'line',
-    data:{labels,datasets:[
-      {label:'المبيعات',data:rev,borderColor:'#1d4ed8',backgroundColor:'rgba(29,78,216,.07)',tension:.4,fill:true,pointRadius:4},
-      {label:'المحصّل',data:col,borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,.07)',tension:.4,fill:true,pointRadius:4}
-    ]},
-    options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{family:'IBM Plex Sans Arabic',size:12}}}},
-      scales:{y:{ticks:{callback:v=>fmtN(v)+' ₪',font:{family:'IBM Plex Sans Arabic'}},grid:{color:'#f0f0f0'}},
-        x:{ticks:{font:{family:'IBM Plex Sans Arabic',size:11}},grid:{display:false}}}}
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {label:'المبيعات', data:rev, borderColor:'#1d4ed8', backgroundColor:'rgba(29,78,216,.07)', tension:.4, fill:true, pointRadius:4},
+        {label:'المحصّل',  data:col, borderColor:'#16a34a', backgroundColor:'rgba(22,163,74,.07)',  tension:.4, fill:true, pointRadius:4}
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position:'bottom', labels: { font: { family:'IBM Plex Sans Arabic', size:12 } } } },
+      scales: {
+        y: { ticks: { callback: v => fmtN(v)+' ₪', font: { family:'IBM Plex Sans Arabic' } }, grid: { color:'#f0f0f0' } },
+        x: { ticks: { font: { family:'IBM Plex Sans Arabic', size:11 } }, grid: { display:false } }
+      }
+    }
   });
 }
 
