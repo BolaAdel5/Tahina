@@ -567,8 +567,21 @@ const SB = supabase.createClient(
 // ============================================================
 // HELPERS
 // ============================================================
-const today = () => new Date().toISOString().split('T')[0];
-const daysAgo = n => { const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().split('T')[0]; };
+const today = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+};
+const daysAgo = n => {
+  const d = new Date();
+  d.setDate(d.getDate()-n);
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+};
 const fmt = n => new Intl.NumberFormat('ar-SA',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n||0)+' ₪';
 const fmtN = (n,d=2) => new Intl.NumberFormat('ar-SA',{maximumFractionDigits:d}).format(n||0);
 const fmtD = s => s ? new Date(s).toLocaleDateString('ar-SA',{day:'2-digit',month:'2-digit',year:'numeric'}) : '';
@@ -685,8 +698,8 @@ async function renderDash() {
   const cMap = {};
   custs.forEach(c => cMap[c.id] = c);
 
-  // إحصائيات اليوم
-  const todayInvs = invs.filter(i => i.date === td);
+  // إحصائيات اليوم - نقارن بـ date و created_at
+  const todayInvs = invs.filter(i => i.date === td || (i.created_at||'').startsWith(td));
   const todayPays = pays.filter(p => p.date === td);
 
   const salesToday = todayInvs.reduce((s,i) => s+(i.total||0), 0);
@@ -1391,19 +1404,55 @@ function updPayDebt() {
 }
 
 async function savePay() {
-  const custId=document.getElementById('mPayC').value;
-  const amount=parseFloat(document.getElementById('mPayAmt').value)||0;
-  if(!custId){toast('اختر العميل','er');return;}
-  if(amount<=0){toast('المبلغ يجب أن يكون أكبر من صفر','er');return;}
+  const custId = document.getElementById('mPayC').value;
+  const amount = parseFloat(document.getElementById('mPayAmt').value)||0;
+  const payDate = document.getElementById('mPayD').value;
+  const payNotes = document.getElementById('mPayN').value;
+
+  if (!custId) { toast('اختر العميل','er'); return; }
+  if (amount <= 0) { toast('المبلغ يجب أن يكون أكبر من صفر','er'); return; }
+
   setBtn('mPaySB',true);
-  const {data:cust}=await SB.from('customers').select('balance').eq('id',custId).single();
-  if(amount>(cust?.balance||0)){setBtn('mPaySB',false);toast('المبلغ أكبر من الرصيد المستحق','er');return;}
-  const {error}=await SB.from('payments').insert({customer_id:custId,amount,date:document.getElementById('mPayD').value,notes:document.getElementById('mPayN').value});
-  if(error){setBtn('mPaySB',false);toast('خطأ: '+error.message,'er');return;}
-  await SB.from('customers').update({balance:Math.max(0,(cust?.balance||0)-amount)}).eq('id',custId);
+
+  // جيب رصيد العميل وفواتيره المعلقة
+  const [{data:cust}, {data:pendingInvs}] = await Promise.all([
+    SB.from('customers').select('balance').eq('id',custId).single(),
+    SB.from('invoices').select('id,paid,remaining,total').eq('customer_id',custId).gt('remaining',0).order('created_at',{ascending:true})
+  ]);
+
+  if (amount > (cust?.balance||0)) {
+    setBtn('mPaySB',false);
+    toast('المبلغ أكبر من الرصيد المستحق','er');
+    return;
+  }
+
+  // سجّل الدفعة
+  const {error} = await SB.from('payments').insert({customer_id:custId, amount, date:payDate, notes:payNotes});
+  if (error) { setBtn('mPaySB',false); toast('خطأ: '+error.message,'er'); return; }
+
+  // حدّث رصيد العميل
+  const newBalance = Math.max(0,(cust?.balance||0)-amount);
+  await SB.from('customers').update({balance:newBalance}).eq('id',custId);
+
+  // حدّث الفواتير المعلقة - وزّع الدفعة عليها بالترتيب
+  let remaining_payment = amount;
+  for (const inv of (pendingInvs||[])) {
+    if (remaining_payment <= 0) break;
+    const invRemaining = inv.remaining || 0;
+    const toPay = Math.min(remaining_payment, invRemaining);
+    const newPaid = (inv.paid||0) + toPay;
+    const newRemaining = Math.max(0, invRemaining - toPay);
+    await SB.from('invoices').update({
+      paid: newPaid,
+      remaining: newRemaining
+    }).eq('id', inv.id);
+    remaining_payment -= toPay;
+  }
+
   setBtn('mPaySB',false);
-  toast('✅ تم تسجيل الدفعة');
-  closeM('mPay'); renderPays();
+  toast('✅ تم تسجيل الدفعة وتحديث الفواتير');
+  closeM('mPay');
+  renderPays();
 }
 
 async function delPay(id,custId,amount){
